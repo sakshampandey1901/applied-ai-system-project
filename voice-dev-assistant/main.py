@@ -18,8 +18,6 @@ if str(_SRC) not in sys.path:
 
 from agent.router import classify_intent, run_intent  # noqa: E402
 from atlas_context.reader import project_root  # noqa: E402
-from audio.capture import record_seconds, record_until_silence  # noqa: E402
-from audio.stt import WhisperSTT  # noqa: E402
 from output.player import play_wav  # noqa: E402
 from state_machine import State, VoiceStateMachine, extract_control_command  # noqa: E402
 from tts.backend import PiperTTS, SilentWavTTS, TTSBackend  # noqa: E402
@@ -28,15 +26,22 @@ from tts.backend import PiperTTS, SilentWavTTS, TTSBackend  # noqa: E402
 def build_tts() -> TTSBackend:
     if os.environ.get("ATLAS_VOICE", "").lower() in ("silent", "0", "off"):
         return SilentWavTTS()
-    try:
-        return PiperTTS()
-    except FileNotFoundError:
+    mp = os.environ.get("ATLAS_PIPER_MODEL", "").strip()
+    if not mp:
         print(
-            "[Atlas] ATLAS_PIPER_MODEL not set or file missing — using silent WAV. "
-            "Set ATLAS_PIPER_MODEL for Piper TTS.",
+            "[Atlas] ATLAS_PIPER_MODEL not set — using silent WAV. "
+            "Set ATLAS_PIPER_MODEL=/path/to/voice.onnx for Piper.",
             file=sys.stderr,
         )
         return SilentWavTTS()
+    p = Path(mp)
+    if not p.is_file():
+        print(
+            f"[Atlas] Piper model not found: {p} — using silent WAV.",
+            file=sys.stderr,
+        )
+        return SilentWavTTS()
+    return PiperTTS(model_path=p)
 
 
 def speak(tts: TTSBackend, text: str) -> None:
@@ -95,7 +100,8 @@ def run_text_loop(tts: TTSBackend, sm: VoiceStateMachine) -> None:
         speak(tts, reply)
 
 
-def run_voice_loop(tts: TTSBackend, sm: VoiceStateMachine, stt: WhisperSTT) -> None:
+def run_voice_loop(tts: TTSBackend, sm: VoiceStateMachine, stt: object) -> None:
+    from audio.capture import record_seconds, record_until_silence
     wake_seconds = float(os.environ.get("ATLAS_WAKE_CHUNK_SEC", "4"))
     idle_states = (State.IDLE, State.SLEEP)
 
@@ -172,6 +178,8 @@ def main() -> None:
         if sm.state == State.SHUTDOWN:
             sys.exit(0)
         return
+
+    from audio.stt import WhisperSTT
 
     print(
         f"[Atlas] Project: {project_root()} — say 'Atlas wake up' to begin.",
