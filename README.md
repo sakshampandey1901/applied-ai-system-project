@@ -4,14 +4,6 @@ Local-first voice assistant for developers: **Whisper (STT)** → **OpenClaw (or
 
 ---
 
-## Original project (Modules 1–3)
-
-**Name:** *Applied AI System Project* (coursework modules 1–3).
-
-**What it was:** Early milestones prototyped speech and text I/O, a local LLM for developer Q&A, and file-grounded context so answers reference real code instead of generic advice. Those modules proved each layer in isolation; this repository integrates them into a single **Atlas** voice loop with explicit boundaries between STT, orchestration, retrieval, inference, and TTS.
-
----
-
 ## Title and summary
 
 **Atlas** is a **hands-free coding assistant** that listens (or accepts typed input), loads the right files from your project, asks a local **Ollama** model for concise spoken answers, and reads them back with **Piper**. It matters for **privacy and control**: models and audio can stay on your machine, and retrieval is **scoped to a project root** with basic path safety.
