@@ -1,0 +1,10 @@
+# Atlas Voice Developer Assistant — Python deps
+numpy>=1.24
+sounddevice>=0.5
+# Prefer faster-whisper for local STT; openai-whisper is a fallback inside audio/stt.py
+faster-whisper>=1.0.0
+
+# Alternate STT (optional if faster-whisper install fails): pip install openai-whisper
+# openai-whisper>=20231117
+
+pytest>=7.4

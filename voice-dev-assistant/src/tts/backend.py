@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import shutil
-import struct
 import subprocess
 import wave
 from abc import ABC, abstractmethod
