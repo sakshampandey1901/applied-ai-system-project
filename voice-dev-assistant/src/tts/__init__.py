@@ -8,6 +8,7 @@ from tts.backend import (
     SilentWavTTS,
     TTSBackend,
     make_piper_backend,
+    resolve_piper_model_path,
 )
 
 __all__ = [
@@ -18,4 +19,5 @@ __all__ = [
     "SilentWavTTS",
     "TTSBackend",
     "make_piper_backend",
+    "resolve_piper_model_path",
 ]

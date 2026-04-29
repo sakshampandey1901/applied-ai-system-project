@@ -68,7 +68,15 @@ Fallback: install **openai-whisper** (`pip install openai-whisper`).
 3. Point Atlas at it:
 
 ```bash
-export ATLAS_PIPER_MODEL=/absolute/path/to/en_US-joe-medium.onnx
+export ATLAS_PIPER_MODEL="/full/path/to/models/en_US-joe-medium.onnx"
+```
+
+For a project-local model, keep the file under a directory such as
+`voice-dev-assistant/models/` and resolve a relative model path from that base:
+
+```bash
+export ATLAS_PIPER_PROJECT="/full/path/to/voice-dev-assistant"
+export ATLAS_PIPER_MODEL="models/en_US-joe-medium.onnx"
 ```
 
 Atlas **prefers the Python bindings** (`PiperVoiceTTS`). If `piper-tts` isn’t installed, it tries the **`piper` CLI** on `PATH` ([releases](https://github.com/rhasspy/piper/releases)).

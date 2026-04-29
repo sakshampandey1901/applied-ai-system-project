@@ -6,10 +6,28 @@ import shutil
 import subprocess
 import wave
 from abc import ABC, abstractmethod
+import os
 from pathlib import Path
 from typing import Callable
 
 DEFAULT_PIPER_CMD = shutil.which("piper") or "piper"
+
+
+def resolve_piper_model_path(model_path: Path | str | None = None) -> Path | None:
+    """Resolve Piper model path from explicit arg or ATLAS_PIPER_MODEL.
+
+    Absolute model paths are used as-is. Relative paths are resolved under
+    ATLAS_PIPER_PROJECT when set, otherwise under the current working directory.
+    """
+    raw = str(model_path or os.environ.get("ATLAS_PIPER_MODEL") or "").strip()
+    if not raw:
+        return None
+    path = Path(raw).expanduser()
+    if path.is_absolute():
+        return path
+    base_raw = os.environ.get("ATLAS_PIPER_PROJECT", "").strip()
+    base = Path(base_raw).expanduser() if base_raw else Path.cwd()
+    return base / path
 
 
 def _load_piper_voice_class():
@@ -80,10 +98,7 @@ class PiperCliTTS(TTSBackend):
         model_path: Path | str | None = None,
         piper_cmd: str = DEFAULT_PIPER_CMD,
     ) -> None:
-        import os
-
-        mp = model_path or os.environ.get("ATLAS_PIPER_MODEL") or ""
-        self.model_path = Path(mp) if mp else None
+        self.model_path = resolve_piper_model_path(model_path)
         self.piper_cmd = piper_cmd
 
     def synth_to_wav(self, text: str, out_wav: Path) -> None:

@@ -18,21 +18,26 @@ from atlas_context.reader import project_root  # noqa: E402
 from openclaw.orchestrator import OpenClawOrchestrator  # noqa: E402
 from output.player import play_wav  # noqa: E402
 from state_machine import State  # noqa: E402
-from tts.backend import SilentWavTTS, TTSBackend, make_piper_backend  # noqa: E402
+from tts.backend import (  # noqa: E402
+    SilentWavTTS,
+    TTSBackend,
+    make_piper_backend,
+    resolve_piper_model_path,
+)
 
 
 def build_tts() -> TTSBackend:
     if os.environ.get("ATLAS_VOICE", "").lower() in ("silent", "0", "off"):
         return SilentWavTTS()
-    mp = os.environ.get("ATLAS_PIPER_MODEL", "").strip()
-    if not mp:
+    p = resolve_piper_model_path()
+    if p is None:
         print(
             "[Atlas] ATLAS_PIPER_MODEL not set — using silent WAV. "
-            "Set ATLAS_PIPER_MODEL=/path/to/voice.onnx for Piper.",
+            "Set ATLAS_PIPER_MODEL=/path/to/voice.onnx or set "
+            "ATLAS_PIPER_PROJECT with a relative ATLAS_PIPER_MODEL.",
             file=sys.stderr,
         )
         return SilentWavTTS()
-    p = Path(mp)
     if not p.is_file():
         print(
             f"[Atlas] Piper model not found: {p} — using silent WAV.",
