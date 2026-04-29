@@ -1,4 +1,4 @@
-"""Ollama local LLM client (structured minimal prompts; stdlib urllib only)."""
+"""Ollama: inference-only text generation — no orchestration or tools."""
 
 from __future__ import annotations
 
@@ -11,12 +11,13 @@ DEFAULT_MODEL = os.environ.get("ATLAS_OLLAMA_MODEL", "llama3")
 OLLAMA_URL = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434").rstrip("/")
 
 
-def chat(
+def infer_messages(
     messages: list[dict[str, str]],
     model: str | None = None,
     temperature: float = 0.2,
     timeout_sec: float = 120.0,
 ) -> str:
+    """Run completion for `messages`; return assistant text."""
     model = model or DEFAULT_MODEL
     payload = {
         "model": model,
@@ -49,20 +50,3 @@ def chat(
     msg = (body or {}).get("message") or {}
     content = msg.get("content") or ""
     return content.strip()
-
-
-def structured_answer(
-    system_rules: str,
-    user_instruction: str,
-    code_context: str,
-    *,
-    task_label: str,
-) -> str:
-    messages = [
-        {"role": "system", "content": system_rules.strip()},
-        {
-            "role": "user",
-            "content": f"{task_label}\n\n--- Context ---\n{code_context}\n--- End ---\n\nInstruction:\n{user_instruction}".strip(),
-        },
-    ]
-    return chat(messages)

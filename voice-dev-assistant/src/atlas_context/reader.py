@@ -92,16 +92,20 @@ class ContextPayload:
 
 
 def load_context_bundle(root: Path | None = None) -> ContextPayload:
+    root = root or project_root()
     snippet, label = read_selected_snippet(root=root)
     if snippet:
-        return snippet, label or "selected code"
+        return ContextPayload(raw_content=snippet, source_descriptor=(label or "selected code"))
 
     cur = infer_current_file(root)
     if cur:
         text = read_file_safe(str(cur), root)
         if len(text) > 24000:
             text = text[:24000] + "\n... [file truncated]"
-        return text, str(cur.relative_to(root))
+        return ContextPayload(
+            raw_content=text,
+            source_descriptor=str(cur.relative_to(root)),
+        )
 
     py = sorted(root.glob("*.py"))
     py.extend(sorted(root.glob("*.md")))
@@ -109,7 +113,13 @@ def load_context_bundle(root: Path | None = None) -> ContextPayload:
     for p in py:
         try:
             text = read_file_safe(str(p), root)
-            return text[:12000], str(p.relative_to(root))
+            return ContextPayload(
+                raw_content=text[:12000],
+                source_descriptor=str(p.relative_to(root)),
+            )
         except OSError:
             continue
-    return "(no readable file — set ATLAS_CURRENT_FILE or add files)", "none"
+    return ContextPayload(
+        raw_content="(no readable file — set ATLAS_CURRENT_FILE or add files)",
+        source_descriptor="none",
+    )

@@ -1,5 +1,5 @@
-"""Ollama local LLM."""
+"""Ollama language model — inference only."""
 
-from llm.ollama_client import DEFAULT_MODEL, OLLAMA_URL, chat, structured_answer
+from llm.ollama_client import DEFAULT_MODEL, OLLAMA_URL, infer_messages
 
-__all__ = ["DEFAULT_MODEL", "OLLAMA_URL", "chat", "structured_answer"]
+__all__ = ["DEFAULT_MODEL", "OLLAMA_URL", "infer_messages"]
