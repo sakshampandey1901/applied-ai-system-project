@@ -13,6 +13,30 @@ SENSITIVE_NAME_PARTS = (
     "credentials",
 )
 
+CONTEXT_EXTENSIONS = {
+    ".py",
+    ".md",
+    ".txt",
+    ".toml",
+    ".yaml",
+    ".yml",
+    ".json",
+    ".ts",
+    ".tsx",
+    ".js",
+    ".jsx",
+}
+SKIP_DIR_PARTS = {
+    ".git",
+    ".pytest_cache",
+    "__pycache__",
+    ".venv",
+    "venv",
+    "node_modules",
+    "dist",
+    "build",
+}
+
 
 def _canonical(path: Path) -> Path:
     try:
@@ -112,6 +136,37 @@ def transcript_path_hint(transcript: str, root: Path | None = None) -> Path | No
     return None
 
 
+def _context_file_candidates(root: Path, limit: int = 24) -> list[Path]:
+    """Return readable source/doc candidates in stable, useful order."""
+    rr = _canonical(root)
+    candidates: list[Path] = []
+    for p in rr.rglob("*"):
+        if not p.is_file():
+            continue
+        rel_parts = set(p.relative_to(rr).parts)
+        if rel_parts & SKIP_DIR_PARTS:
+            continue
+        if p.suffix.lower() not in CONTEXT_EXTENSIONS:
+            continue
+        if is_safe_path(p, rr):
+            candidates.append(p)
+
+    def score(path: Path) -> tuple[int, str]:
+        rel = path.relative_to(rr)
+        rel_s = str(rel)
+        if rel_s.startswith("src/") and path.suffix == ".py":
+            pri = 0
+        elif path.suffix == ".py":
+            pri = 1
+        elif rel.name.lower().startswith("readme"):
+            pri = 2
+        else:
+            pri = 3
+        return pri, rel_s
+
+    return sorted(candidates, key=score)[:limit]
+
+
 def load_context_bundle(root: Path | None = None, transcript: str | None = None) -> ContextPayload:
     root = root or project_root()
     snippet, label = read_selected_snippet(root=root)
@@ -139,18 +194,28 @@ def load_context_bundle(root: Path | None = None, transcript: str | None = None)
             source_descriptor=str(cur.relative_to(root)),
         )
 
-    py = sorted(root.glob("*.py"))
-    py.extend(sorted(root.glob("*.md")))
-    py = py[:40]
-    for p in py:
+    chunks: list[str] = []
+    descriptors: list[str] = []
+    total = 0
+    for p in _context_file_candidates(root):
         try:
             text = read_file_safe(str(p), root)
-            return ContextPayload(
-                raw_content=text[:12000],
-                source_descriptor=str(p.relative_to(root)),
-            )
         except OSError:
             continue
+        rel = str(p.relative_to(root))
+        remaining = 24000 - total
+        if remaining <= 0:
+            break
+        clipped = text[: min(len(text), 4000, remaining)]
+        chunks.append(f"--- File: {rel} ---\n{clipped}")
+        descriptors.append(rel)
+        total += len(chunks[-1])
+    if chunks:
+        more = "" if len(descriptors) < 24 else " (truncated file list)"
+        return ContextPayload(
+            raw_content="\n\n".join(chunks),
+            source_descriptor=f"project bundle: {', '.join(descriptors)}{more}",
+        )
     return ContextPayload(
         raw_content="(no readable file — set ATLAS_CURRENT_FILE or add files)",
         source_descriptor="none",

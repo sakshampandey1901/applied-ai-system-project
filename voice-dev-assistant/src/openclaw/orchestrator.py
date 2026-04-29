@@ -15,34 +15,37 @@ from state_machine import State, VoiceStateMachine, extract_control_command
 OLLAMA_SYSTEM_POLICY = """You are Atlas, a voice developer assistant.
 Rules:
 - Answer only from the provided code context. If missing, say what is missing briefly.
-- Be concise. Prefer short bullet points. No long preambles.
+- Be concise and concrete. Prefer short bullet points. No long preambles.
+- Name the source file and specific functions/classes/variables when they are present in context.
+- Do not give generic advice when code context is available; cite what the supplied code actually does.
+- Output plain spoken text. Avoid Markdown symbols, code fences, and tables.
 - Do not suggest shell commands, rm, format disk, or editing files unless the user explicitly asks to plan edits — and never destructive actions.
 - Do not access paths beyond the supplied context."""
 
 _TASK_SPECS: dict[str, tuple[str, str]] = {
     "summarize_file": (
         "Summarize this file for a developer listening on audio.",
-        "Keep 3–6 bullets of the most important points.",
+        "Keep 3–6 bullets. Mention concrete functions/classes and the source file.",
     ),
     "explain_function": (
         "Explain the main function or core logic in this snippet.",
-        "Start with purpose, then key steps (bullets).",
+        "Start with purpose, then key steps. Refer to concrete names found in the context.",
     ),
     "fix_error": (
         "Diagnose likely issues and propose a minimal fix outline.",
-        "Do not claim certainty without evidence from context. Bullet possible causes and fixes.",
+        "Do not claim certainty without evidence from context. Tie each likely cause to concrete code.",
     ),
     "refactor": (
         "Suggest a safe refactor outline for readability or structure.",
-        "Bullets only; no sweeping rewrites.",
+        "Bullets only; name the exact code areas to change. No sweeping rewrites.",
     ),
     "what_code": (
         "Describe what this code does.",
-        "Short bullets; state inputs/outputs if obvious.",
+        "Short bullets; name concrete files/functions and state inputs/outputs if obvious.",
     ),
     "generic_code": (
         "Answer the developer request using the provided code context.",
-        "Bullets; keep under ~150 spoken words.",
+        "Bullets; keep under ~150 spoken words. Use concrete identifiers from the context.",
     ),
 }
 
@@ -62,6 +65,8 @@ def _build_user_message_for_ollama(
         f"Source: {source_descriptor}\n\n"
         f"--- Context ---\n{payload_raw}\n--- End ---\n\n"
         f"Instruction:\nUser said: {user_said.strip()}\n{constraint}"
+        "\nIf the request says 'this' but the context has multiple possible targets, "
+        "say which source you are using and answer from that source."
     ).strip()
 
 

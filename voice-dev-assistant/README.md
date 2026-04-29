@@ -98,11 +98,18 @@ Reads stay under the project root; risky path name patterns are skipped.
 
 ### 5. Run
 
+From **`voice-dev-assistant`** as the current directory (your shell prompt usually ends with that folder name):
+
 ```bash
 python3 src/main.py              # microphone + Whisper voice loop
 python3 src/main.py --text      # REPL for testing (no microphone)
 python3 -m pytest tests -v
 ```
+
+If you are already there, **do not** run `cd voice-dev-assistant` again (nested path does not exist).
+
+If Piper is unset, Atlas prints `[Atlas] ATLAS_PIPER_MODEL…` once to stderr and continues with silent WAV plus **printed** text—that is normal.
+
 
 ## Control phrases
 

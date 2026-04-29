@@ -122,6 +122,13 @@ def run_voice_loop(tts: TTSBackend, orch: OpenClawOrchestrator, stt: object) -> 
             if turn.exit_process:
                 break
 
+            if (
+                not turn.speech_sequence
+                and orch.state in idle_like
+                and transcript.strip()
+            ):
+                print("(Say wake phrase first)", flush=True)
+
         except KeyboardInterrupt:
             print("\n[Atlas] Interrupted.", file=sys.stderr)
             orch.shutdown()

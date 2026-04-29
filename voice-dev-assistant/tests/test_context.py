@@ -31,7 +31,20 @@ def test_transcript_traversal_rejected(tmp_path, monkeypatch: pytest.MonkeyPatch
     assert transcript_path_hint("../../../etc/passwd") is None
 
 
+def test_fallback_context_recurses_into_src(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ATLAS_PROJECT_ROOT", str(tmp_path))
+    (tmp_path / "README.md").write_text("top level docs")
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "main.py").write_text("def concrete_answer():\n    return 42\n")
+
+    bundle = load_context_bundle()
+
+    assert "src/main.py" in bundle.source_descriptor
+    assert "concrete_answer" in bundle.raw_content
+
+
 @pytest.fixture(autouse=True)
 def clear_selection_env(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.delenv("ATLAS_SELECTED_CODE", raising=False)
-

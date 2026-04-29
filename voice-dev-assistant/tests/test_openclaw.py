@@ -32,6 +32,10 @@ def test_openclaw_developer_turn_uses_llm_layer(monkeypatch: pytest.MonkeyPatch,
     turn = orch.handle_transcript("explain this function")
     assert turn.speech_sequence == ["Thinking...", "Responding...", "MODEL OUTPUT"]
     assert captured_msgs
+    user_prompt = captured_msgs[0][1]["content"]
+    assert "Source:" in user_prompt
+    assert "concrete" in user_prompt.lower()
+    assert "If the request says 'this'" in user_prompt
 
 
 def test_developer_turn_chunks_long_llm_reply(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
