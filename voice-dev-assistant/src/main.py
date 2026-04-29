@@ -18,7 +18,7 @@ from atlas_context.reader import project_root  # noqa: E402
 from openclaw.orchestrator import OpenClawOrchestrator  # noqa: E402
 from output.player import play_wav  # noqa: E402
 from state_machine import State  # noqa: E402
-from tts.backend import PiperTTS, SilentWavTTS, TTSBackend  # noqa: E402
+from tts.backend import SilentWavTTS, TTSBackend, make_piper_backend  # noqa: E402
 
 
 def build_tts() -> TTSBackend:
@@ -39,7 +39,11 @@ def build_tts() -> TTSBackend:
             file=sys.stderr,
         )
         return SilentWavTTS()
-    return PiperTTS(model_path=p)
+    try:
+        return make_piper_backend(p)
+    except ImportError as e:
+        print(f"[Atlas] {e} — using silent WAV.", file=sys.stderr)
+        return SilentWavTTS()
 
 
 def speak(tts: TTSBackend, text: str) -> None:

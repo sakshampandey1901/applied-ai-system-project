@@ -1,4 +1,4 @@
-"""Text-to-speech: Piper CLI by default (pluggable)."""
+"""Text-to-speech: Piper Python API (preferred) or Piper CLI fallback."""
 
 from __future__ import annotations
 
@@ -9,8 +9,22 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Callable
 
-
 DEFAULT_PIPER_CMD = shutil.which("piper") or "piper"
+
+
+def _load_piper_voice_class():
+    try:
+        from piper.voice import PiperVoice as PV
+        return PV
+    except ImportError:
+        pass
+    try:
+        from piper import PiperVoice as PV
+        return PV
+    except ImportError as e:
+        raise ImportError(
+            "Piper Python API not installed. Run: pip install piper-tts"
+        ) from e
 
 
 def _minimal_silent_wav_bytes(duration_sec: float = 0.3, sample_rate: int = 16000) -> bytes:
@@ -36,8 +50,30 @@ class TTSBackend(ABC):
         play_audio(out_wav)
 
 
-class PiperTTS(TTSBackend):
-    """Calls `piper` with --model; writes WAV via --output_file."""
+class PiperVoiceTTS(TTSBackend):
+    """Piper ONNX via bundled Python bindings (`pip install piper-tts`)."""
+
+    __slots__ = ("_voice",)
+
+    def __init__(self, model_path: Path | str) -> None:
+        mp = Path(model_path)
+        if not mp.is_file():
+            raise FileNotFoundError(f"Piper voice model not found: {mp}")
+        pv = _load_piper_voice_class()
+        self._voice = pv.load(str(mp))
+
+    def synth_to_wav(self, text: str, out_wav: Path) -> None:
+        t = text.strip() or " "
+        out_wav.parent.mkdir(parents=True, exist_ok=True)
+        with wave.open(str(out_wav), "wb") as wav_file:
+            if hasattr(self._voice, "synthesize_wav"):
+                self._voice.synthesize_wav(t, wav_file)
+            else:
+                self._voice.synthesize(t, wav_file)
+
+
+class PiperCliTTS(TTSBackend):
+    """Calls `piper` executable with --model (no Python piper-tts package)."""
 
     def __init__(
         self,
@@ -77,9 +113,26 @@ class PiperTTS(TTSBackend):
             raise RuntimeError(f"Piper failed ({proc.returncode}): {stderr}")
 
 
+# Back-compat name used in older docs
+PiperTTS = PiperCliTTS
+
+
 class SilentWavTTS(TTSBackend):
     """Quiet placeholder WAV for CI or runs without Piper model."""
 
     def synth_to_wav(self, text: str, out_wav: Path) -> None:
         out_wav.parent.mkdir(parents=True, exist_ok=True)
         out_wav.write_bytes(_minimal_silent_wav_bytes())
+
+
+def make_piper_backend(model_path: Path) -> TTSBackend:
+    """Prefer Python PiperVoice; fall back to `piper` CLI."""
+    try:
+        return PiperVoiceTTS(model_path)
+    except ImportError:
+        pass
+    if shutil.which("piper"):
+        return PiperCliTTS(model_path=model_path)
+    raise ImportError(
+        "Install Piper: pip install piper-tts  OR put the `piper` CLI on PATH"
+    )

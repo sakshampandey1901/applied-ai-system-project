@@ -41,15 +41,13 @@ pip install -r requirements.txt
 
 ### 1. Ollama (local LLM)
 
-Install [Ollama](https://ollama.com/) and pull a model (e.g. Llama 3):
+Install [Ollama](https://ollama.com/) and pull the default model (**`llama3.1:8b`** — override with `export ATLAS_OLLAMA_MODEL=…`):
 
 ```bash
-ollama pull llama3
-export ATLAS_OLLAMA_MODEL=llama3
-ollama serve
+ollama pull llama3.1:8b
 ```
 
-API base defaults to `http://127.0.0.1:11434` (override via `OLLAMA_HOST`).
+API base defaults to `http://127.0.0.1:11434` (override via `OLLAMA_HOST`). On macOS the app usually keeps the daemon running; use `ollama serve` only if nothing is listening.
 
 ### 2. Whisper (speech-to-text)
 
@@ -65,13 +63,15 @@ Fallback: install **openai-whisper** (`pip install openai-whisper`).
 
 ### 3. Piper TTS
 
-1. Install the `piper` CLI ([rhasspy/piper releases](https://github.com/rhasspy/piper/releases)) on `PATH`.
-2. Download a voice `.onnx` (English voice packs from Piper docs/releases).
-3. Set the model:
+1. `pip install -r requirements.txt` includes **`piper-tts`** (Python `PiperVoice` API — same idea as loading `models/*.onnx` with `wave.open` + `voice.synthesize` / `synthesize_wav`).
+2. Download a voice **`.onnx`** (+ matching `.json` next to it, usually auto-picked).
+3. Point Atlas at it:
 
 ```bash
-export ATLAS_PIPER_MODEL=/absolute/path/to/en_US-lessac-medium.onnx
+export ATLAS_PIPER_MODEL=/absolute/path/to/en_US-joe-medium.onnx
 ```
+
+Atlas **prefers the Python bindings** (`PiperVoiceTTS`). If `piper-tts` isn’t installed, it tries the **`piper` CLI** on `PATH` ([releases](https://github.com/rhasspy/piper/releases)).
 
 If unset or invalid, Atlas uses brief silent WAV playback and prints all cues to stdout. Force silent:
 

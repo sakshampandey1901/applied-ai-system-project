@@ -7,4 +7,7 @@ faster-whisper>=1.0.0
 # Alternate STT (optional if faster-whisper install fails): pip install openai-whisper
 # openai-whisper>=20231117
 
+# Piper TTS — Python API (see https://pypi.org/project/piper-tts/) or Piper CLI on PATH
+piper-tts>=1.0.0
+
 pytest>=7.4
