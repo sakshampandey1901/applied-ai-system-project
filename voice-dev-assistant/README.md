@@ -1,36 +1,106 @@
 # Atlas — Voice Developer Assistant
 
-Local-first voice assistant: **Whisper (STT)** → **OpenClaw (orchestration)** → **`atlas_context` (reads)** → **Ollama (inference)** → **OpenClaw (speech plan)** → **Piper (TTS)**. Control phrases override other logic.
+Local-first voice assistant for developers: **Whisper (STT)** → **OpenClaw (orchestration)** → **`atlas_context` (retrieval)** → **Ollama (LLM)** → **Piper (TTS)**. Control phrases override other logic so sleep, wake, and shutdown stay predictable.
 
-## Layer boundaries (mandatory pipeline)
+---
 
-1. **Input** — microphone or `main.py --text` produces text.
-2. **OpenClaw** — intent + control parsing, state (`IDLE` / `ACTIVE` / `SLEEP` / `SHUTDOWN`), routing only. Calls **Context** and **Ollama**; does not synthesize speech; does not run STT/LLM internals.
-3. **`atlas_context`** — returns raw `ContextPayload` (file/snippet bytes as text + descriptor). No LLM, no TTS, no intent logic.
-4. **Ollama** — `infer_messages(...)` only (HTTP inference). No filesystem, no state, no audio.
-5. **OpenClaw** — builds ordered `speech_sequence` (fixed cues + model reply text). No rewriting of model output except error passthrough strings.
-6. **Piper** — `tts` + `speak()` in **main**: synthesizes and plays finalized strings only.
+## Original project (Modules 1–3)
 
-## Project layout
+**Name:** *Applied AI System Project* (coursework modules 1–3).
 
+**What it was:** Early milestones prototyped speech and text I/O, a local LLM for developer Q&A, and file-grounded context so answers reference real code instead of generic advice. Those modules proved each layer in isolation; this repository integrates them into a single **Atlas** voice loop with explicit boundaries between STT, orchestration, retrieval, inference, and TTS.
+
+---
+
+## Title and summary
+
+**Atlas** is a **hands-free coding assistant** that listens (or accepts typed input), loads the right files from your project, asks a local **Ollama** model for concise spoken answers, and reads them back with **Piper**. It matters for **privacy and control**: models and audio can stay on your machine, and retrieval is **scoped to a project root** with basic path safety.
+
+---
+
+## Architecture overview
+
+High-level components and data flow:
+
+| Role | Component | Responsibility |
+|------|-----------|----------------|
+| **Input** | Microphone + `main.py`, optional `--text` REPL | Raw audio or typed text |
+| **STT** | `audio/` + `WhisperSTT` | Speech → transcript |
+| **Orchestrator / agent** | `openclaw/` (`OpenClawOrchestrator`) | Control phrases, intents, prompt assembly, speech plan |
+| **State** | `state_machine.py` | `IDLE` / `ACTIVE` / `SLEEP` / `SHUTDOWN` |
+| **Intent routing** | `openclaw/intents.py` | Maps utterances to task types (e.g. explain, summarize) |
+| **Retriever** | `atlas_context/` | Resolves which file/snippet to inject into the prompt |
+| **LLM** | `llm/ollama_client.py` | Single chat completion; no tools, no filesystem |
+| **Output** | `tts/` + `output/player.py` | Synthesize WAV and play cues + answer chunks |
+
+**Flow (input → process → output):**  
+**Audio or text** → **transcript** → **OpenClaw** (wake/sleep/shutdown or developer intent) → **context bundle** from disk → **messages to Ollama** → **assistant text** → **chunked `speech_sequence`** → **TTS + playback**.
+
+**Where humans and testing check AI results:**
+
+| Checkpoint | What happens |
+|------------|----------------|
+| **Developer** | Uses `--text` mode or listens to spoken output; verifies answers against real files. |
+| **Automated tests** | `pytest` mocks the LLM and asserts orchestration, state, context resolution, and TTS path logic (**20 tests**). |
+| **Errors** | Orchestrator catches inference failures and turns them into a spoken error string; `main.py` logs TTS failures to stderr. |
+
+### System diagram
+
+```mermaid
+flowchart TB
+    subgraph input [Input]
+        Mic[Microphone]
+        CLI[Text REPL main.py --text]
+    end
+
+    subgraph sense [Speech and routing]
+        STT[Whisper STT]
+        OC[OpenClaw orchestrator]
+        SM[State machine]
+        INT[Intent classifier]
+    end
+
+    subgraph knowledge [Grounding]
+        RET[Atlas context retriever]
+        FS[(Project files under ATLAS_PROJECT_ROOT)]
+    end
+
+    subgraph model [Inference]
+        LLM[Ollama infer_messages]
+    end
+
+    subgraph output [Output]
+        TTS[Piper TTS]
+        Play[Audio playback]
+    end
+
+    subgraph quality [Human and automated checks]
+        PY[Pytest mocks and asserts]
+        HUMAN[Human or peer review of transcripts and answers]
+    end
+
+    Mic --> STT
+    CLI --> OC
+    STT --> OC
+    OC --> SM
+    OC --> INT
+    OC --> RET
+    RET --> FS
+    FS --> RET
+    OC --> LLM
+    LLM --> OC
+    OC --> TTS
+    TTS --> Play
+    PY -.-> OC
+    PY -.-> RET
+    HUMAN -.-> OC
 ```
-voice-dev-assistant/
-  requirements.txt
-  README.md
-  src/
-    main.py           # Entry: python src/main.py (I/O only)
-    state_machine.py # Used by OpenClaw for transitions / phrase extraction
-    openclaw/         # Orchestration (intent + routing + prompt assembly)
-    audio/
-    atlas_context/    # Local file/snippet reads (pkgname avoids Python stdlib `context`)
-    llm/
-    tts/
-    output/
-  tests/
-```
 
+---
 
-## Quick start
+## Setup instructions
+
+### 1. Environment
 
 ```bash
 cd voice-dev-assistant
@@ -39,7 +109,7 @@ source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### 1. Ollama (local LLM)
+### 2. Ollama (local LLM)
 
 Install [Ollama](https://ollama.com/) and pull the default model (**`llama3.1:8b`** — override with `export ATLAS_OLLAMA_MODEL=…`):
 
@@ -47,11 +117,11 @@ Install [Ollama](https://ollama.com/) and pull the default model (**`llama3.1:8b
 ollama pull llama3.1:8b
 ```
 
-API base defaults to `http://127.0.0.1:11434` (override via `OLLAMA_HOST`). On macOS the app usually keeps the daemon running; use `ollama serve` only if nothing is listening.
+API base defaults to `http://127.0.0.1:11434` (`OLLAMA_HOST` to override).
 
-### 2. Whisper (speech-to-text)
+### 3. Whisper (speech-to-text)
 
-The app prefers **faster-whisper** (from `requirements.txt`). Default model is **base** via `ATLAS_WHISPER_MODEL`.
+The app prefers **faster-whisper**. Default model is **base** via `ATLAS_WHISPER_MODEL`.
 
 ```bash
 export ATLAS_WHISPER_MODEL=small
@@ -59,75 +129,165 @@ export ATLAS_WHISPER_DEVICE=cpu
 export ATLAS_WHISPER_COMPUTE=int8      # float32 if int8 unsupported
 ```
 
-Fallback: install **openai-whisper** (`pip install openai-whisper`).
+Fallback: **openai-whisper** if faster-whisper is unavailable.
 
-### 3. Piper TTS
+### 4. Piper TTS
 
-1. `pip install -r requirements.txt` includes **`piper-tts`** (Python `PiperVoice` API — same idea as loading `models/*.onnx` with `wave.open` + `voice.synthesize` / `synthesize_wav`).
-2. Download a voice **`.onnx`** (+ matching `.json` next to it, usually auto-picked).
+1. `pip install -r requirements.txt` includes **`piper-tts`**.
+2. Download a voice **`.onnx`** (+ matching `.json`).
 3. Point Atlas at it:
 
 ```bash
 export ATLAS_PIPER_MODEL="/full/path/to/models/en_US-joe-medium.onnx"
 ```
 
-For a project-local model, keep the file under a directory such as
-`voice-dev-assistant/models/` and resolve a relative model path from that base:
+Project-relative layout:
 
 ```bash
 export ATLAS_PIPER_PROJECT="/full/path/to/voice-dev-assistant"
 export ATLAS_PIPER_MODEL="models/en_US-joe-medium.onnx"
 ```
 
-Atlas **prefers the Python bindings** (`PiperVoiceTTS`). If `piper-tts` isn’t installed, it tries the **`piper` CLI** on `PATH` ([releases](https://github.com/rhasspy/piper/releases)).
+If unset or invalid, Atlas uses brief silent WAV and still prints text. Force silent: `export ATLAS_VOICE=silent`.
 
-If unset or invalid, Atlas uses brief silent WAV playback and prints all cues to stdout. Force silent:
-
-```bash
-export ATLAS_VOICE=silent
-```
-
-### 4. Project scope / context
+### 5. Project scope / context
 
 - `ATLAS_PROJECT_ROOT` — safe read root (default: cwd).
 - `ATLAS_CURRENT_FILE` — “current file” under that root.
-- `ATLAS_SELECTED_CODE` — selected snippet **or** `.atlas/selection.txt`.
-- Mention a project file in speech (e.g. `readme.md`): **context resolves that path first** before `ATLAS_CURRENT_FILE`/fallback.
+- `ATLAS_SELECTED_CODE` — selected snippet or `.atlas/selection.txt`.
+- Mention a file in speech (e.g. `readme.md`): context resolves that path first.
 
-Reads stay under the project root; risky path name patterns are skipped.
+### 6. Run and test
 
-### 5. Run
-
-From **`voice-dev-assistant`** as the current directory (your shell prompt usually ends with that folder name):
+From **`voice-dev-assistant`**:
 
 ```bash
 python3 src/main.py              # microphone + Whisper voice loop
-python3 src/main.py --text      # REPL for testing (no microphone)
-python3 -m pytest tests -v
+python3 src/main.py --text       # REPL for testing (no microphone)
+python3 -m pytest tests -v       # automated checks
 ```
 
-If you are already there, **do not** run `cd voice-dev-assistant` again (nested path does not exist).
+---
 
-If Piper is unset, Atlas prints `[Atlas] ATLAS_PIPER_MODEL…` once to stderr and continues with silent WAV plus **printed** text—that is normal.
+## Sample interactions
 
+Examples illustrate the pipeline; **exact LLM wording varies** with model and temperature.
+
+**1. Wake and control (text mode)**  
+- **Input:** `Atlas wake up`  
+- **Output (spoken/printed):** `Atlas is now active`
+
+**2. Summarize with file hint**  
+- **Input:** (after wake) `summarize readme.md`  
+- **Output:** Cues `Thinking...`, `Responding...`, then a short bullet summary grounded in that file’s text (assuming it exists under `ATLAS_PROJECT_ROOT`).
+
+**3. Explain code (context from project)**  
+- **Input:** `explain this function` with `ATLAS_CURRENT_FILE` or selection pointing at a Python file containing `def concrete_answer():`  
+- **Output:** Bullets describing purpose and behavior, ideally naming `concrete_answer` and the source file per the system policy in `openclaw/orchestrator.py`.
+
+**4. Dormant without wake**  
+- **Input:** (in `IDLE`) `what does this code do` without wake phrase  
+- **Output:** No LLM call; console may show `(Say wake phrase first)`.
+
+---
+
+## Design decisions
+
+- **Strict layers:** STT, orchestration, retrieval, and LLM do not overlap responsibilities (see module docstrings). That makes the system easier to test and swap (e.g. another TTS backend implementing `TTSBackend`).
+- **Local-first:** Reduces data leaving the machine; trade-off is setup cost (models, GPU/CPU time) vs. a hosted API.
+- **Sync inference + chunked TTS:** One LLM round-trip per turn, then `_split_reply_for_tts_dispatch` improves listenability instead of streaming tokens from Ollama.
+- **Control phrases before coding intents:** Avoids accidental triggers from background speech; trade-off is less “natural” than end-to-end NLU.
+
+---
+
+## Testing summary
+
+**Automated:** `python3 -m pytest tests -v` — **20 passed** (state machine, OpenClaw with mocked LLM, context path resolution and safety, Piper path resolution). Ollama and Whisper are **not** required for these tests.
+
+**Logging and error handling:** `infer_messages` raises clear errors on HTTP/connection failure; `OpenClawOrchestrator.handle_transcript` catches generic exceptions and returns a user-facing string; `main.speak` logs TTS failures to stderr.
+
+**Confidence scoring:** Not implemented as numeric scores (Ollama chat in this stack does not expose token logprobs here). The **system prompt** instead constrains tone: cite context, admit missing context, and avoid claiming certainty without evidence — a **policy-based** notion of calibration rather than a scalar score.
+
+**Human / peer evaluation:** Recommended for portfolio demos: compare the spoken answer to the source file and note **hallucinated identifiers** or **missed wake/STT errors**.
+
+**One-line summary for reviewers:** *20/20 unit tests passed; live runs depend on Whisper accuracy and Ollama quality — the assistant struggled when context was missing or mis-recognized, and improved when file hints in the utterance matched real paths.*
+
+---
+
+## Reflection
+
+Building Atlas reinforced that **reliable AI products are mostly engineering**: clear state machines, safe file access, and tests that mock the nondeterministic LLM layer. The interesting part is not the model alone but **where** you ground it and **how** you fail (spoken errors, no silent crashes). For a portfolio, **reproducible tests plus an honest limitations section** matter as much as a slick demo.
+
+---
+
+## Reliability and evaluation (checklist)
+
+| Mechanism | Status |
+|-----------|--------|
+| Automated tests (pytest) | Yes — orchestration, context, state, TTS helpers |
+| Confidence scoring (numeric) | Not in v1; policy asks for careful claims |
+| Logging and error handling | Yes — stderr + try/except around inference and TTS |
+| Human evaluation | Advised for STT + answer fidelity |
+
+---
+
+## Reflection and ethics
+
+**Limitations and biases:** Whisper and the LLM inherit **audio and language biases** (accents, domain jargon). Answers are only as good as **retrieved context**; wrong or stale files mislead. The model may still **overstate** despite instructions.
+
+**Misuse and mitigation:** The assistant could **leak sensitive code** if the project root contains secrets — mitigate with `.gitignore`, environment hygiene, and not pointing `ATLAS_PROJECT_ROOT` at entire home directories. It is not an autonomous agent: **no shell or file writes** in the core path; keep it that way for deployments. Use **wake/sleep** to reduce ambient speech triggering.
+
+**What surprised me in reliability testing:** **Mocked tests** were stable, but **live STT** sometimes changed punctuation or dropped words, which broke path hints — text REPL was invaluable for isolating LLM vs. microphone issues.
+
+**Collaboration with coding assistants (e.g. Cursor / ChatGPT):**
+
+- **Helpful suggestion:** Proposing a **strict pipeline** (OpenClaw vs. `atlas_context` vs. Ollama) with **pytest monkeypatch** on `infer_messages` — that pattern made CI meaningful without a GPU.
+- **Flawed suggestion:** A recommendation to **pin an older Piper wheel** that did not match the current macOS/Python combo in this environment; following it would have blocked TTS until corrected; **verify installs against your own OS** and fall back to silent mode or CLI Piper.
+
+---
 
 ## Control phrases
 
-| Phrase                     | Transition / effect                              |
-|---------------------------|--------------------------------------------------|
-| **Atlas wake up**          | IDLE or SLEEP → ACTIVE                           |
-| **Atlas go to sleep**      | ACTIVE → SLEEP                                  |
-| **Atlas shut down**        | Shutdown (exit)                                 |
-| **Atlas close agent**      | Shutdown (exit)                                 |
+| Phrase | Effect |
+|--------|--------|
+| **Atlas wake up** | IDLE or SLEEP → ACTIVE |
+| **Atlas go to sleep** | ACTIVE → SLEEP |
+| **Atlas shut down** / **Atlas close agent** | Shutdown |
 
 Order of checks: shutdown → sleep → wake. Audio prompts: “Atlas is now active”, “Going to sleep”, “Shutting down”, “Thinking…”, “Responding…”.
 
 ## Coding intents (ACTIVE only)
 
-- Explain this function / Summarize this file / Fix this error / Refactor this code / What does this code do?
+Explain this function · Summarize this file · Fix this error · Refactor this code · What does this code do?  
+Answers use concise bullets; **no arbitrary shell or destructive writes** in the orchestration policy.
 
-Answers use concise bullets routed by OpenClaw; **no arbitrary shell or destructive writes**.
+## Layer boundaries (mandatory pipeline)
+
+1. **Input** — microphone or `main.py --text` produces text.  
+2. **OpenClaw** — intent + control parsing, state, routing. Calls **Context** and **Ollama**; does not run STT/LLM internals or Piper.  
+3. **`atlas_context`** — raw `ContextPayload`; no LLM or TTS.  
+4. **Ollama** — `infer_messages(...)` only.  
+5. **OpenClaw** — builds ordered `speech_sequence`.  
+6. **Piper** — `main.speak()` synthesizes finalized strings only.
+
+## Project layout
+
+```
+voice-dev-assistant/
+  requirements.txt
+  README.md
+  src/
+    main.py
+    state_machine.py
+    openclaw/
+    audio/
+    atlas_context/
+    llm/
+    tts/
+    output/
+  tests/
+```
 
 ## TTS backends
 
-Implement `tts.backend.TTSBackend` for future providers (ElevenLabs, etc.) and instantiate it from `main.build_tts()`.
+Implement `tts.backend.TTSBackend` for future providers and instantiate from `main.build_tts()`.
