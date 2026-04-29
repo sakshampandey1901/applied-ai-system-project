@@ -20,22 +20,30 @@ SHUTDOWN_PHRASES = ("atlas shut down", "atlas close agent")
 
 
 def _normalize(text: str) -> str:
-    t = "".join(ch.lower() for ch in text if ch.isalnum() or ch.isspace())
-    return " ".join(t.split())
+    chars: list[str] = []
+    for ch in text.lower():
+        if ch.isalnum() or ch.isspace():
+            chars.append(ch if ch.isalnum() else " ")
+    return " ".join("".join(chars).split())
 
 
 def extract_control_command(text: str) -> str | None:
     """Return 'wake', 'sleep', 'shutdown', or None."""
     n = _normalize(text)
+
+    # Order: shutdown → sleep → wake (most specific overrides)
     for p in SHUTDOWN_PHRASES:
-        if _normalize(p) in n or n in _normalize(p):
+        if _normalize(p) in n:
             return "shutdown"
+
     for p in SLEEP_PHRASES:
         if _normalize(p) in n:
             return "sleep"
+
     for p in WAKE_PHRASES:
         if _normalize(p) in n:
             return "wake"
+
     return None
 
 
@@ -78,7 +86,7 @@ class VoiceStateMachine:
         self._set(State.SHUTDOWN)
 
     def idle(self) -> None:
-        """Used if we ever need to reset to idle without process exit."""
+        """Reset to idle without exit (recovery)."""
         if self._state != State.SHUTDOWN:
             self._set(State.IDLE)
 

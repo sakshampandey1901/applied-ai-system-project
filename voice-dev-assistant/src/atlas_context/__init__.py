@@ -1,6 +1,6 @@
 """Local read-only context for the agent."""
 
-from context.reader import (
+from atlas_context.reader import (
     infer_current_file,
     project_root,
     read_context_for_command,

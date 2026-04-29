@@ -1,6 +1,6 @@
-"""Audio capture and speech-to-text."""
+"""Audio input and speech-to-text."""
 
-from voice_dev_assistant.src.audio.capture import record_seconds, record_until_silence
-from voice_dev_assistant.src.audio.stt import WhisperSTT
+from audio.capture import record_seconds, record_until_silence, write_wav_pcm16
+from audio.stt import WhisperSTT
 
-__all__ = ["record_seconds", "record_until_silence", "WhisperSTT"]
+__all__ = ["WhisperSTT", "record_seconds", "record_until_silence", "write_wav_pcm16"]
