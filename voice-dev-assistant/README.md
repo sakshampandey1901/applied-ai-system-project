@@ -1,6 +1,15 @@
 # Atlas — Voice Developer Assistant
 
-Local-first voice assistant for developers: Whisper (STT) → routed intents → **Ollama** (LLM) → **Piper** (TTS). Control phrases **override** other logic.
+Local-first voice assistant: **Whisper (STT)** → **OpenClaw (orchestration)** → **`atlas_context` (reads)** → **Ollama (inference)** → **OpenClaw (speech plan)** → **Piper (TTS)**. Control phrases override other logic.
+
+## Layer boundaries (mandatory pipeline)
+
+1. **Input** — microphone or `main.py --text` produces text.
+2. **OpenClaw** — intent + control parsing, state (`IDLE` / `ACTIVE` / `SLEEP` / `SHUTDOWN`), routing only. Calls **Context** and **Ollama**; does not synthesize speech; does not run STT/LLM internals.
+3. **`atlas_context`** — returns raw `ContextPayload` (file/snippet bytes as text + descriptor). No LLM, no TTS, no intent logic.
+4. **Ollama** — `infer_messages(...)` only (HTTP inference). No filesystem, no state, no audio.
+5. **OpenClaw** — builds ordered `speech_sequence` (fixed cues + model reply text). No rewriting of model output except error passthrough strings.
+6. **Piper** — `tts` + `speak()` in **main**: synthesizes and plays finalized strings only.
 
 ## Project layout
 
@@ -9,16 +18,17 @@ voice-dev-assistant/
   requirements.txt
   README.md
   src/
-    main.py           # Entry: python src/main.py
-    state_machine.py
+    main.py           # Entry: python src/main.py (I/O only)
+    state_machine.py # Used by OpenClaw for transitions / phrase extraction
+    openclaw/         # Orchestration (intent + routing + prompt assembly)
     audio/
-    agent/
-    atlas_context/    # Local file context (pkgname avoids Python stdlib `context`)
+    atlas_context/    # Local file/snippet reads (pkgname avoids Python stdlib `context`)
     llm/
     tts/
     output/
   tests/
 ```
+
 
 ## Quick start
 
@@ -100,7 +110,7 @@ Order of checks: shutdown → sleep → wake. Audio prompts: “Atlas is now act
 
 - Explain this function / Summarize this file / Fix this error / Refactor this code / What does this code do?
 
-Answers use **structured** bullets; the agent layer does **not** run arbitrary shell commands or destructive file operations.
+Answers use concise bullets routed by OpenClaw; **no arbitrary shell or destructive writes**.
 
 ## TTS backends
 

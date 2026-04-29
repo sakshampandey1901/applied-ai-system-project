@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Atlas Voice Developer Assistant — entry point."""
+"""Atlas Voice Developer Assistant — I/O glue only (mic/STT/console → OpenClaw → Piper)."""
 
 from __future__ import annotations
 
@@ -10,15 +10,14 @@ import tempfile
 import uuid
 from pathlib import Path
 
-# This file lives inside `src/`; that directory is the import root for `audio`, `agent`, …
 _SRC = Path(__file__).resolve().parent
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
-from agent.router import classify_intent, run_intent  # noqa: E402
 from atlas_context.reader import project_root  # noqa: E402
+from openclaw.orchestrator import OpenClawOrchestrator  # noqa: E402
 from output.player import play_wav  # noqa: E402
-from state_machine import State, VoiceStateMachine, extract_control_command  # noqa: E402
+from state_machine import State  # noqa: E402
 from tts.backend import PiperTTS, SilentWavTTS, TTSBackend  # noqa: E402
 
 
@@ -44,6 +43,7 @@ def build_tts() -> TTSBackend:
 
 
 def speak(tts: TTSBackend, text: str) -> None:
+    """Print + Piper synthesis + playback — TTS performs no interpretation."""
     print(text, flush=True)
     path = Path(tempfile.gettempdir()) / f"atlas-{uuid.uuid4().hex}.wav"
     try:
@@ -60,101 +60,62 @@ def speak(tts: TTSBackend, text: str) -> None:
             pass
 
 
-def run_text_loop(tts: TTSBackend, sm: VoiceStateMachine) -> None:
-    """Non-audio mode for tests and environments without a mic."""
+def run_text_loop(tts: TTSBackend, orch: OpenClawOrchestrator) -> None:
     print("Atlas text mode. Commands: wake/sleep/shutdown + intent phrases. Empty line exits.")
-    while sm.state != State.SHUTDOWN:
+    while orch.state != State.SHUTDOWN:
         try:
             line = input("> ").strip()
         except EOFError:
-            sm.shutdown()
+            orch.shutdown()
             speak(tts, "Shutting down")
             break
         if not line:
-            sm.shutdown()
+            orch.shutdown()
             speak(tts, "Shutting down")
             break
-        ctrl = extract_control_command(line)
-        if ctrl == "wake":
-            sm.apply_control_command("wake")
-            if sm.state == State.ACTIVE:
-                speak(tts, "Atlas is now active")
-            continue
-        if ctrl == "sleep":
-            sm.apply_control_command("sleep")
-            if sm.state == State.SLEEP:
-                speak(tts, "Going to sleep")
-            continue
-        if ctrl == "shutdown":
-            sm.shutdown()
-            speak(tts, "Shutting down")
+
+        turn = orch.handle_transcript(line)
+        for phrase in turn.speech_sequence:
+            speak(tts, phrase)
+        if turn.exit_process:
             break
-        if sm.state != State.ACTIVE:
+
+        if (
+            not turn.speech_sequence
+            and orch.state in (State.IDLE, State.SLEEP)
+            and line.strip()
+        ):
             print("(Say wake phrase first)")
-            continue
-        speak(tts, "Thinking...")
-        intent = classify_intent(line)
-        speak(tts, "Responding...")
-        try:
-            reply = run_intent(intent, line)
-        except Exception as e:
-            reply = f"Error: {e}"
-        speak(tts, reply)
 
 
-def run_voice_loop(tts: TTSBackend, sm: VoiceStateMachine, stt: object) -> None:
+def run_voice_loop(tts: TTSBackend, orch: OpenClawOrchestrator, stt: object) -> None:
     from audio.capture import record_seconds, record_until_silence
 
     wake_seconds = float(os.environ.get("ATLAS_WAKE_CHUNK_SEC", "4"))
-    idle_states = (State.IDLE, State.SLEEP)
+    idle_like = (State.IDLE, State.SLEEP)
 
-    while sm.state != State.SHUTDOWN:
+    while orch.state != State.SHUTDOWN:
         try:
-            if sm.state in idle_states:
+            if orch.state in idle_like:
                 audio = record_seconds(wake_seconds)
-                transcript = stt.transcribe(audio)
-                if not transcript.strip():
-                    continue
-                ctrl = extract_control_command(transcript)
-                if ctrl == "shutdown":
-                    sm.shutdown()
-                    speak(tts, "Shutting down")
-                    break
-                if ctrl == "wake":
-                    sm.apply_control_command("wake")
-                    speak(tts, "Atlas is now active")
+                transcript = stt.transcribe(audio).strip()
+            else:
+                audio = record_until_silence()
+                transcript = stt.transcribe(audio).strip()
+
+            if not transcript:
                 continue
 
-            if sm.state == State.ACTIVE:
-                speak(tts, "Thinking...")
-                audio = record_until_silence()
-                transcript = stt.transcribe(audio)
-                if not transcript.strip():
-                    continue
-                ctrl = extract_control_command(transcript)
-                if ctrl == "sleep":
-                    sm.apply_control_command("sleep")
-                    speak(tts, "Going to sleep")
-                    continue
-                if ctrl == "shutdown":
-                    sm.shutdown()
-                    speak(tts, "Shutting down")
-                    break
-                if ctrl == "wake":
-                    speak(tts, "Atlas is now active")
-                    continue
+            turn = orch.handle_transcript(transcript)
 
-                speak(tts, "Responding...")
-                intent = classify_intent(transcript)
-                try:
-                    reply = run_intent(intent, transcript)
-                except Exception as e:
-                    reply = f"I could not complete that: {e}"
-                speak(tts, reply)
+            for phrase in turn.speech_sequence:
+                speak(tts, phrase)
+            if turn.exit_process:
+                break
 
         except KeyboardInterrupt:
             print("\n[Atlas] Interrupted.", file=sys.stderr)
-            sm.shutdown()
+            orch.shutdown()
             speak(tts, "Shutting down")
             break
 
@@ -164,7 +125,7 @@ def main() -> None:
     ap.add_argument(
         "--text",
         action="store_true",
-        help="Text REPL instead of microphone (for testing / no audio hardware)",
+        help="Text REPL instead of microphone",
     )
     args = ap.parse_args()
 
@@ -173,12 +134,12 @@ def main() -> None:
     def _on_transition(old: State, new: State) -> None:
         del old, new
 
-    sm = VoiceStateMachine(initial=State.IDLE, on_transition=_on_transition)
+    orch = OpenClawOrchestrator(initial=State.IDLE, on_transition=_on_transition)
     tts = build_tts()
 
     if args.text:
-        run_text_loop(tts, sm)
-        if sm.state == State.SHUTDOWN:
+        run_text_loop(tts, orch)
+        if orch.state == State.SHUTDOWN:
             sys.exit(0)
         return
 
@@ -192,7 +153,7 @@ def main() -> None:
     device = os.environ.get("ATLAS_WHISPER_DEVICE")
     ctype = os.environ.get("ATLAS_WHISPER_COMPUTE", "int8")
     stt = WhisperSTT(model_size=whisper_model, device=device, compute_type=ctype)
-    run_voice_loop(tts, sm, stt)
+    run_voice_loop(tts, orch, stt)
     sys.exit(0)
 
 
