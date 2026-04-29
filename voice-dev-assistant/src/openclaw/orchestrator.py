@@ -1,7 +1,8 @@
-"""OpenClaw: orchestration only — intent, state, routing, prompt assembly, final speech plan."""
+"""OpenClaw: orchestration — intent, routing, context scope, speech plan for TTS (no Piper)."""
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Callable
 
@@ -10,13 +11,13 @@ from llm.ollama_client import infer_messages
 from openclaw.intents import classify_intent
 from state_machine import State, VoiceStateMachine, extract_control_command
 
-# Policy text sent to Ollama as system message (orchestration-owned policy, not raw files).
+# Policy text owned by orchestration — passed to Ollama as system message only.
 OLLAMA_SYSTEM_POLICY = """You are Atlas, a voice developer assistant.
 Rules:
 - Answer only from the provided code context. If missing, say what is missing briefly.
 - Be concise. Prefer short bullet points. No long preambles.
 - Do not suggest shell commands, rm, format disk, or editing files unless the user explicitly asks to plan edits — and never destructive actions.
-- Do not access paths outside the project."""
+- Do not access paths beyond the supplied context."""
 
 _TASK_SPECS: dict[str, tuple[str, str]] = {
     "summarize_file": (
@@ -45,6 +46,9 @@ _TASK_SPECS: dict[str, tuple[str, str]] = {
     ),
 }
 
+# Chunk long replies so main+Piper can play sentence-sized units (streaming-style UX, sync inference).
+_REPLY_CHUNK_SOFT_MAX = 300
+
 
 def _build_user_message_for_ollama(
     task_label: str,
@@ -61,16 +65,46 @@ def _build_user_message_for_ollama(
     ).strip()
 
 
+def _split_reply_for_tts_dispatch(model_reply: str) -> list[str]:
+    """Break long prose into sequential speak units (main calls Piper per segment)."""
+    raw = model_reply.strip()
+    if not raw:
+        return []
+    if len(raw) <= _REPLY_CHUNK_SOFT_MAX:
+        return [raw]
+
+    parts: list[str] = []
+    buf = ""
+    for para in raw.split("\n"):
+        para = para.strip()
+        if not para:
+            continue
+        for sent in re.split(r"(?<=[.!?])\s+", para):
+            s = sent.strip()
+            if not s:
+                continue
+            cand = f"{buf} {s}".strip() if buf else s
+            if len(cand) <= _REPLY_CHUNK_SOFT_MAX:
+                buf = cand
+            else:
+                if buf:
+                    parts.append(buf)
+                buf = s[: _REPLY_CHUNK_SOFT_MAX] if len(s) > _REPLY_CHUNK_SOFT_MAX else s
+    if buf:
+        parts.append(buf)
+    return parts if parts else [raw[:_REPLY_CHUNK_SOFT_MAX]]
+
+
 @dataclass(frozen=True, slots=True)
 class TurnResult:
-    """What to speak (in order) and whether the process should exit."""
+    """Ordered strings for Piper; main iterates speak() → TTS dispatcher."""
 
     speech_sequence: list[str]
     exit_process: bool
 
 
 class OpenClawOrchestrator:
-    """Single entry for transcript handling after STT; owns state machine."""
+    """STT yields text → handle_transcript() → ordered speech cues + LLM chunks (single sync inference call)."""
 
     __slots__ = ("_sm",)
 
@@ -89,39 +123,30 @@ class OpenClawOrchestrator:
         self._sm.shutdown()
 
     def handle_transcript(self, transcript: str) -> TurnResult:
+        """Pipeline: blank → no-op | control cues (immediate) | intent → scoped context → infer → speech plan."""
         text = transcript.strip()
         if not text:
             return TurnResult([], False)
 
-        ctrl = extract_control_command(text)
-
-        st = self._sm.state
-        idle_like = st in (State.IDLE, State.SLEEP)
+        # 1. Control phrases (fixed cues only — orchestration, not NLG).
+        idle_like = self._sm.state in (State.IDLE, State.SLEEP)
+        ctrl_turn = (
+            self._control_when_dormant(text)
+            if idle_like
+            else self._control_when_active(text)
+        )
+        if ctrl_turn is not None:
+            return ctrl_turn
 
         if idle_like:
-            if ctrl == "shutdown":
-                self._sm.shutdown()
-                return TurnResult(["Shutting down"], True)
-            if ctrl == "wake":
-                self._sm.apply_control_command("wake")
-                return TurnResult(["Atlas is now active"], False)
             return TurnResult([], False)
 
-        # ACTIVE
-        if ctrl == "sleep":
-            self._sm.apply_control_command("sleep")
-            return TurnResult(["Going to sleep"], False)
-        if ctrl == "shutdown":
-            self._sm.shutdown()
-            return TurnResult(["Shutting down"], True)
-        if ctrl == "wake":
-            return TurnResult(["Atlas is now active"], False)
-
-        # Developer tools path: Context → Ollama → assemble ordered speech (fixed cues + model text only).
+        # 2–5. ACTIVE developer path — intent → context(scope=transcript) → Ollama (sync inference)
         intent = classify_intent(text)
         task_label, constraint = _TASK_SPECS.get(intent, _TASK_SPECS["generic_code"])
+        payload = load_context_bundle(transcript=text)
 
-        payload = load_context_bundle()
+        cues = ["Thinking...", "Responding..."]
         user_msg = _build_user_message_for_ollama(
             task_label,
             constraint,
@@ -138,7 +163,27 @@ class OpenClawOrchestrator:
         except Exception as e:
             reply = f"I could not complete that: {e}"
 
-        return TurnResult(
-            ["Thinking...", "Responding...", reply],
-            False,
-        )
+        chunks = _split_reply_for_tts_dispatch(reply)
+        return TurnResult(cues + chunks, False)
+
+    def _control_when_dormant(self, text: str) -> TurnResult | None:
+        ctrl = extract_control_command(text)
+        if ctrl == "shutdown":
+            self._sm.shutdown()
+            return TurnResult(["Shutting down"], True)
+        if ctrl == "wake":
+            self._sm.apply_control_command("wake")
+            return TurnResult(["Atlas is now active"], False)
+        return None
+
+    def _control_when_active(self, text: str) -> TurnResult | None:
+        ctrl = extract_control_command(text)
+        if ctrl == "sleep":
+            self._sm.apply_control_command("sleep")
+            return TurnResult(["Going to sleep"], False)
+        if ctrl == "shutdown":
+            self._sm.shutdown()
+            return TurnResult(["Shutting down"], True)
+        if ctrl == "wake":
+            return TurnResult(["Atlas is now active"], False)
+        return None

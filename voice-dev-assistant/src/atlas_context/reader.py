@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -91,11 +92,42 @@ class ContextPayload:
     source_descriptor: str
 
 
-def load_context_bundle(root: Path | None = None) -> ContextPayload:
+_PATH_IN_TRANSCRIPT = re.compile(
+    r"\b([\w\-][\w\-./]*\.(?:py|md|txt|toml|ya?ml|json|tsx?|jsx?|rs|go|java|kt|swift|c|h|cpp|hpp))\b",
+    re.IGNORECASE,
+)
+
+
+def transcript_path_hint(transcript: str, root: Path | None = None) -> Path | None:
+    """First filesystem path token in `transcript` that resolves to a file under `root`."""
+    root = root or project_root()
+    rr = _canonical(root)
+    for m in _PATH_IN_TRANSCRIPT.finditer(transcript):
+        token = m.group(1).strip().lstrip("./")
+        if not token or ".." in Path(token).parts:
+            continue
+        p = _canonical(rr / token)
+        if is_safe_path(p, rr) and p.is_file():
+            return p
+    return None
+
+
+def load_context_bundle(root: Path | None = None, transcript: str | None = None) -> ContextPayload:
     root = root or project_root()
     snippet, label = read_selected_snippet(root=root)
     if snippet:
         return ContextPayload(raw_content=snippet, source_descriptor=(label or "selected code"))
+
+    if transcript and transcript.strip():
+        hinted = transcript_path_hint(transcript.strip(), root)
+        if hinted is not None:
+            text = read_file_safe(str(hinted), root)
+            if len(text) > 24000:
+                text = text[:24000] + "\n... [file truncated]"
+            return ContextPayload(
+                raw_content=text,
+                source_descriptor=str(hinted.relative_to(root)),
+            )
 
     cur = infer_current_file(root)
     if cur:

@@ -7,6 +7,7 @@ from atlas_context.reader import (
     project_root,
     read_file_safe,
     read_selected_snippet,
+    transcript_path_hint,
 )
 
 __all__ = [
@@ -16,4 +17,5 @@ __all__ = [
     "project_root",
     "read_file_safe",
     "read_selected_snippet",
+    "transcript_path_hint",
 ]
