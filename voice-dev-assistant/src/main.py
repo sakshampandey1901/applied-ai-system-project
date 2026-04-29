@@ -10,9 +10,8 @@ import tempfile
 import uuid
 from pathlib import Path
 
-# Resolve imports: `src` is the package root (audio, agent, atlas_context, …)
-_ROOT = Path(__file__).resolve().parent
-_SRC = _ROOT / "src"
+# This file lives inside `src/`; that directory is the import root for `audio`, `agent`, …
+_SRC = Path(__file__).resolve().parent
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
@@ -68,9 +67,12 @@ def run_text_loop(tts: TTSBackend, sm: VoiceStateMachine) -> None:
         try:
             line = input("> ").strip()
         except EOFError:
+            sm.shutdown()
+            speak(tts, "Shutting down")
             break
         if not line:
             sm.shutdown()
+            speak(tts, "Shutting down")
             break
         ctrl = extract_control_command(line)
         if ctrl == "wake":
@@ -102,6 +104,7 @@ def run_text_loop(tts: TTSBackend, sm: VoiceStateMachine) -> None:
 
 def run_voice_loop(tts: TTSBackend, sm: VoiceStateMachine, stt: object) -> None:
     from audio.capture import record_seconds, record_until_silence
+
     wake_seconds = float(os.environ.get("ATLAS_WAKE_CHUNK_SEC", "4"))
     idle_states = (State.IDLE, State.SLEEP)
 
