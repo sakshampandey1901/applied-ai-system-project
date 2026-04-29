@@ -84,6 +84,7 @@ export ATLAS_VOICE=silent
 - `ATLAS_PROJECT_ROOT` — safe read root (default: cwd).
 - `ATLAS_CURRENT_FILE` — “current file” under that root.
 - `ATLAS_SELECTED_CODE` — selected snippet **or** `.atlas/selection.txt`.
+- Mention a project file in speech (e.g. `readme.md`): **context resolves that path first** before `ATLAS_CURRENT_FILE`/fallback.
 
 Reads stay under the project root; risky path name patterns are skipped.
 

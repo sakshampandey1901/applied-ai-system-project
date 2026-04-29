@@ -1,7 +1,5 @@
 """Context layer tests — transcript-derived file scope."""
 
-import os
-
 import pytest
 
 from atlas_context.reader import load_context_bundle, transcript_path_hint

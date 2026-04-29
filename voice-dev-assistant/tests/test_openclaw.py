@@ -34,6 +34,21 @@ def test_openclaw_developer_turn_uses_llm_layer(monkeypatch: pytest.MonkeyPatch,
     assert captured_msgs
 
 
+def test_developer_turn_chunks_long_llm_reply(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ATLAS_PROJECT_ROOT", str(tmp_path))
+    (tmp_path / "f.py").write_text("x = 1\n")
+
+    filler = "Hi. " * 120
+
+    monkeypatch.setattr(oc_orch, "infer_messages", lambda _m: filler)
+
+    orch = OpenClawOrchestrator(initial=State.ACTIVE)
+    turn = orch.handle_transcript("explain this code")
+    assert turn.speech_sequence[:2] == ["Thinking...", "Responding..."]
+    assert len(turn.speech_sequence) >= 4
+
+
 def test_openclaw_wake_from_idle(monkeypatch: pytest.MonkeyPatch):
     orch = OpenClawOrchestrator(initial=State.IDLE)
     turn = orch.handle_transcript("Atlas wake up")

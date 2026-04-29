@@ -7,7 +7,7 @@ import os
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-DEFAULT_MODEL = os.environ.get("ATLAS_OLLAMA_MODEL", "llama3")
+DEFAULT_MODEL = os.environ.get("ATLAS_OLLAMA_MODEL", "llama3.1:8b")
 OLLAMA_URL = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434").rstrip("/")
 
 
