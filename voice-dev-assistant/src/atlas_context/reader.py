@@ -1,8 +1,9 @@
-"""Safe local filesystem access within project scope."""
+"""Safe local filesystem access within project scope — data only, no reasoning."""
 
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass
 from pathlib import Path
 
 SENSITIVE_NAME_PARTS = (
@@ -82,9 +83,15 @@ def read_selected_snippet(max_chars: int = 16000, root: Path | None = None) -> t
     return None, None
 
 
-def read_context_for_command(root: Path | None = None) -> tuple[str, str]:
-    """Returns (context_block, source_description)."""
-    root = root or project_root()
+@dataclass(frozen=True, slots=True)
+class ContextPayload:
+    """Raw project content for upstream orchestration (no interpretation)."""
+
+    raw_content: str
+    source_descriptor: str
+
+
+def load_context_bundle(root: Path | None = None) -> ContextPayload:
     snippet, label = read_selected_snippet(root=root)
     if snippet:
         return snippet, label or "selected code"
