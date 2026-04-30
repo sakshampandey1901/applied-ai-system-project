@@ -4,7 +4,7 @@ Local-first voice assistant for developers: **Whisper (STT)** → **OpenClaw (or
 
 ---
 
-## Title and summary
+## Summary
 
 **Atlas** is a **hands-free coding assistant** that listens (or accepts typed input), loads the right files from your project, asks a local **Ollama** model for concise spoken answers, and reads them back with **Piper**. It matters for **privacy and control**: models and audio can stay on your machine, and retrieval is **scoped to a project root** with basic path safety.
 
